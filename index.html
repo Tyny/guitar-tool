@@ -137,6 +137,42 @@
   }
   .edit-actions { display: flex; gap: 10px; margin-top: 18px; }
   .edit-actions .btn { flex: 1; }
+
+  /* Play / presentación (full screen) */
+  .play {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--bg); color: var(--ink);
+    display: flex; flex-direction: column;
+    user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .play-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: calc(8px + env(safe-area-inset-top)) 10px 8px;
+  }
+  .play-bar .grow { flex: 1; }
+  .play-counter { color: var(--muted); font-size: .95rem; font-weight: 800; letter-spacing: .02em; }
+  .play-stage {
+    flex: 1; position: relative; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; overflow: hidden;
+    padding: 4px 20px calc(40px + env(safe-area-inset-bottom));
+  }
+  .play-chip {
+    margin: 0 0 22px; padding: 5px 16px; border-radius: 999px;
+    font-size: .9rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--pc, var(--muted));
+    background: color-mix(in srgb, var(--pc, var(--muted)) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--pc, var(--muted)) 42%, transparent);
+  }
+  .play-lines { color: var(--pc, var(--ink)); }
+  .play-line { font-weight: 700; line-height: 1.28; }
+  .play-hint {
+    position: absolute; left: 0; right: 0;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    text-align: center; color: var(--muted); font-size: .8rem;
+    pointer-events: none; opacity: .55;
+  }
 </style>
 </head>
 <body>
@@ -208,6 +244,22 @@ function parse(source) {
   return out;
 }
 
+// Group consecutive lines with the same label into section blocks (one per
+// full-screen slide). Blank lines break groups; neutral (no-label) blocks kept.
+function blocksOf(source) {
+  const blocks = [];
+  let cur = null;
+  for (const it of parse(source)) {
+    if (it.blank) { cur = null; continue; }
+    if (!cur || it.label !== cur.label) {
+      cur = { label: it.label, color: it.label ? colorFor(it.label) : null, lines: [] };
+      blocks.push(cur);
+    }
+    cur.lines.push(it.text);
+  }
+  return blocks;
+}
+
 /* ---------- dom helpers ---------- */
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -219,8 +271,8 @@ const app = document.getElementById("app");
 function clear() { app.textContent = ""; }
 
 /* ---------- routing / state ---------- */
-let view = { name: "list", id: null };
-function go(name, id) { view = { name, id: id ?? null }; render(); window.scrollTo(0, 0); }
+let view = { name: "list", id: null, idx: 0 };
+function go(name, id, idx) { view = { name, id: id ?? null, idx: idx ?? 0 }; render(); window.scrollTo(0, 0); }
 function songById(id) { return songs.find(s => s.id === id); }
 function newId() {
   return "s-" + hashStr(String(songs.length) + "|" + (songs.map(s => s.id).join(",")))
@@ -290,6 +342,12 @@ function viewRead() {
     lyrics.append(el("div", "empty", "Canción vacía. Tocá “Editar” para cargar la letra."));
   }
   app.append(lyrics);
+
+  if (blocksOf(s.source).length > 0) {
+    const play = el("button", "fab", "▶ Presentar");
+    play.addEventListener("click", () => go("play", s.id, 0));
+    app.append(play);
+  }
 }
 
 function viewEdit() {
@@ -337,11 +395,95 @@ function viewEdit() {
   save2.addEventListener("click", () => { commit(); go("read", s.id); });
 }
 
+/* ---------- fullscreen / wake lock (best effort) ---------- */
+let wakeLock = null;
+async function acquireWake() {
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); }
+  catch (e) { /* ignore */ }
+}
+function releaseWake() { try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
+function enterFS() {
+  const d = document.documentElement;
+  const fn = d.requestFullscreen || d.webkitRequestFullscreen;
+  if (fn) { try { fn.call(d); } catch (e) {} }
+}
+function exitFS() {
+  const fn = document.exitFullscreen || document.webkitExitFullscreen;
+  if (fn && (document.fullscreenElement || document.webkitFullscreenElement)) {
+    try { fn.call(document); } catch (e) {}
+  }
+}
+
+/* ---------- play view (full screen, tap to advance) ---------- */
+function fitText(node, box, chip) {
+  if (!node || !box) return;
+  const avail = box.clientHeight - (chip ? chip.offsetHeight + 26 : 0) - 12;
+  let size = 60; node.style.fontSize = size + "px";
+  let guard = 0;
+  while (guard++ < 40 && size > 16 &&
+    (node.scrollHeight > avail || node.scrollWidth > box.clientWidth)) {
+    size -= 2; node.style.fontSize = size + "px";
+  }
+}
+
+function viewPlay() {
+  const s = songById(view.id);
+  if (!s) return go("list");
+  const blocks = blocksOf(s.source);
+  if (blocks.length === 0) { alert("La canción está vacía."); return go("read", s.id); }
+  let idx = Math.min(Math.max(view.idx || 0, 0), blocks.length - 1);
+
+  const overlay = el("div", "play");
+  const bar = el("div", "play-bar");
+  const exit = el("button", "icon", "✕"); exit.setAttribute("aria-label", "Salir");
+  const prev = el("button", "icon", "‹"); prev.setAttribute("aria-label", "Anterior");
+  const counter = el("div", "play-counter");
+  bar.append(exit, prev, el("div", "grow"), counter);
+  const stage = el("div", "play-stage");
+  const hint = el("div", "play-hint", "tocá para avanzar");
+  overlay.append(bar, stage, hint);
+  app.append(overlay);
+
+  let linesEl = null, chipEl = null;
+  function paint() {
+    const b = blocks[idx];
+    stage.textContent = "";
+    stage.style.setProperty("--pc", b.color || "var(--ink)");
+    chipEl = null;
+    if (b.label) { chipEl = el("div", "play-chip", b.label); stage.append(chipEl); }
+    linesEl = el("div", "play-lines");
+    for (const ln of b.lines) linesEl.append(el("div", "play-line", ln || " "));
+    stage.append(linesEl);
+    counter.textContent = (idx + 1) + " / " + blocks.length;
+    prev.style.visibility = idx === 0 ? "hidden" : "visible";
+    hint.style.display = idx === 0 ? "" : "none";
+    fitText(linesEl, stage, chipEl);
+    requestAnimationFrame(() => fitText(linesEl, stage, chipEl));
+  }
+  function onResize() { fitText(linesEl, stage, chipEl); }
+  function close() {
+    window.removeEventListener("resize", onResize);
+    releaseWake(); exitFS(); go("read", s.id);
+  }
+
+  stage.addEventListener("click", () => {
+    if (idx >= blocks.length - 1) { close(); return; }
+    idx++; paint();
+  });
+  prev.addEventListener("click", () => { if (idx > 0) { idx--; paint(); } });
+  exit.addEventListener("click", close);
+  window.addEventListener("resize", onResize);
+
+  enterFS(); acquireWake();
+  paint();
+}
+
 /* ---------- render ---------- */
 function render() {
   clear();
   if (view.name === "read") viewRead();
   else if (view.name === "edit") viewEdit();
+  else if (view.name === "play") viewPlay();
   else viewList();
 }
 
