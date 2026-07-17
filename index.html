@@ -118,6 +118,11 @@
     background: color-mix(in srgb, var(--pc, var(--muted)) 16%, transparent);
     border: 1px solid color-mix(in srgb, var(--pc, var(--muted)) 40%, transparent);
   }
+  .chords {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700; font-size: .98rem; letter-spacing: .04em;
+    color: var(--pc, var(--muted)); margin: 0 0 7px;
+  }
   .line { color: var(--pc, var(--ink)); font-weight: 600; }
   .block.neutral .line { color: var(--ink); }
   .spacer { height: 16px; }
@@ -163,17 +168,35 @@
   .play-counter { color: var(--muted); font-size: .95rem; font-weight: 800; letter-spacing: .02em; }
   .play-stage {
     flex: 1; position: relative; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
     text-align: center; overflow: hidden;
-    padding: 4px 20px calc(40px + env(safe-area-inset-bottom));
+    padding: 10px 18px calc(40px + env(safe-area-inset-bottom));
+  }
+  .play-head {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    width: 100%; padding-top: 6px;
   }
   .play-chip {
-    margin: 0 0 22px; padding: 5px 16px; border-radius: 999px;
+    padding: 5px 16px; border-radius: 999px;
     font-size: .9rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
     color: var(--pc, var(--muted));
     background: color-mix(in srgb, var(--pc, var(--muted)) 16%, transparent);
     border: 1px solid color-mix(in srgb, var(--pc, var(--muted)) 42%, transparent);
   }
+  /* acordes: máximo 4 por línea, celdas claras y espaciadas */
+  .play-chords {
+    display: grid; grid-template-columns: repeat(4, auto);
+    gap: 10px 14px; justify-content: center;
+  }
+  .chordcell {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 800; font-size: 1.55rem; letter-spacing: .03em;
+    color: var(--pc, var(--ink)); text-align: center;
+    min-width: 2.6em; padding: 8px 14px; border-radius: 12px;
+    background: color-mix(in srgb, var(--pc, var(--muted)) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--pc, var(--muted)) 34%, transparent);
+  }
+  .play-lineswrap { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; }
   .play-lines { color: var(--pc, var(--ink)); }
   .play-line { font-weight: 700; line-height: 1.28; }
   .play-hint {
@@ -289,6 +312,7 @@ function parse(source) {
   for (const raw of (source || "").split("\n")) {
     if (raw.trim() === "") { out.push({ blank: true }); prev = null; continue; }
     const i = raw.indexOf("|");
+    if (i >= 0 && raw.slice(0, i).trim().toLowerCase() === "chords") continue; // directiva de acordes
     let label, text;
     if (i >= 0) { label = raw.slice(0, i).trim(); text = raw.slice(i + 1).trim(); }
     else { label = prev; text = raw.trim(); }
@@ -298,15 +322,44 @@ function parse(source) {
   return out;
 }
 
+// Chord directives:  "Chords | * | Em D C"  -> acordes para todas las secciones
+//                    "Chords | Frase | Am G" -> acordes solo para esa sección
+// La sección específica pisa al comodín "*".
+function chordRulesOf(source) {
+  const rules = {};
+  for (const raw of String(source).split(/\r?\n/)) {
+    const i = raw.indexOf("|");
+    if (i < 0 || raw.slice(0, i).trim().toLowerCase() !== "chords") continue;
+    const rest = raw.slice(i + 1);
+    const j = rest.indexOf("|");
+    let target, chords;
+    if (j >= 0) { target = rest.slice(0, j).trim(); chords = rest.slice(j + 1).trim(); }
+    else { target = "*"; chords = rest.trim(); }
+    const key = target === "*" ? "*" : target.toLowerCase();
+    if (chords) rules[key] = chords;
+  }
+  return rules;
+}
+function chordsForLabel(rules, label) {
+  if (label && rules[label.toLowerCase()]) return rules[label.toLowerCase()];
+  return rules["*"] || null;
+}
+
 // Group consecutive lines with the same label into section blocks (one per
 // full-screen slide). Blank lines break groups; neutral (no-label) blocks kept.
 function blocksOf(source) {
+  const rules = chordRulesOf(source);
   const blocks = [];
   let cur = null;
   for (const it of parse(source)) {
     if (it.blank) { cur = null; continue; }
     if (!cur || it.label !== cur.label) {
-      cur = { label: it.label, color: it.label ? colorFor(it.label) : null, lines: [] };
+      cur = {
+        label: it.label,
+        color: it.label ? colorFor(it.label) : null,
+        chords: chordsForLabel(rules, it.label),
+        lines: [],
+      };
       blocks.push(cur);
     }
     cur.lines.push(it.text);
@@ -441,23 +494,16 @@ function viewRead() {
   app.append(top);
 
   const lyrics = el("div", "lyrics");
-  const items = parse(s.source);
-  let block = null, curLabel = undefined;
-  for (const it of items) {
-    if (it.blank) { lyrics.append(el("div", "spacer")); block = null; curLabel = undefined; continue; }
-    if (it.label !== curLabel || !block) {
-      curLabel = it.label;
-      block = el("div", it.label ? "block" : "block neutral");
-      if (it.label) {
-        const c = colorFor(it.label);
-        block.style.setProperty("--pc", c);
-        block.append(el("div", "chip", it.label));
-      }
-      lyrics.append(block);
-    }
-    block.append(el("div", "line", it.text));
+  const blocks = blocksOf(s.source);
+  for (const b of blocks) {
+    const block = el("div", b.label ? "block" : "block neutral");
+    if (b.color) block.style.setProperty("--pc", b.color);
+    if (b.label) block.append(el("div", "chip", b.label));
+    if (b.chords) block.append(el("div", "chords", b.chords));
+    for (const ln of b.lines) block.append(el("div", "line", ln));
+    lyrics.append(block);
   }
-  if (items.length === 0 || items.every(i => i.blank)) {
+  if (blocks.length === 0) {
     lyrics.append(el("div", "empty", "Canción vacía. Tocá “Editar” para cargar la letra."));
   }
   app.append(lyrics);
@@ -535,9 +581,9 @@ function exitFS() {
 }
 
 /* ---------- play view (full screen, tap to advance) ---------- */
-function fitText(node, box, chip) {
+function fitText(node, box, head) {
   if (!node || !box) return;
-  const avail = box.clientHeight - (chip ? chip.offsetHeight + 26 : 0) - 12;
+  const avail = box.clientHeight - (head ? head.offsetHeight + 20 : 0) - 12;
   let size = 60; node.style.fontSize = size + "px";
   let guard = 0;
   while (guard++ < 40 && size > 16 &&
@@ -564,23 +610,31 @@ function viewPlay() {
   overlay.append(bar, stage, hint);
   app.append(overlay);
 
-  let linesEl = null, chipEl = null;
+  let linesEl = null, headEl = null;
   function paint() {
     const b = blocks[idx];
     stage.textContent = "";
     stage.style.setProperty("--pc", b.color || "var(--ink)");
-    chipEl = null;
-    if (b.label) { chipEl = el("div", "play-chip", b.label); stage.append(chipEl); }
+    headEl = el("div", "play-head");
+    if (b.label) headEl.append(el("div", "play-chip", b.label));
+    if (b.chords) {
+      const ch = el("div", "play-chords");
+      for (const tok of b.chords.split(/\s+/).filter(Boolean)) ch.append(el("span", "chordcell", tok));
+      headEl.append(ch);
+    }
+    stage.append(headEl);
+    const wrap = el("div", "play-lineswrap");
     linesEl = el("div", "play-lines");
     for (const ln of b.lines) linesEl.append(el("div", "play-line", ln || " "));
-    stage.append(linesEl);
+    wrap.append(linesEl);
+    stage.append(wrap);
     counter.textContent = (idx + 1) + " / " + blocks.length;
     prev.style.visibility = idx === 0 ? "hidden" : "visible";
     hint.style.display = idx === 0 ? "" : "none";
-    fitText(linesEl, stage, chipEl);
-    requestAnimationFrame(() => fitText(linesEl, stage, chipEl));
+    fitText(linesEl, stage, headEl);
+    requestAnimationFrame(() => fitText(linesEl, stage, headEl));
   }
-  function onResize() { fitText(linesEl, stage, chipEl); }
+  function onResize() { fitText(linesEl, stage, headEl); }
   function close() {
     window.removeEventListener("resize", onResize);
     releaseWake(); exitFS(); go("read", s.id);
