@@ -15,7 +15,7 @@ Estribillo | Si me quieres junto a ti frota bien y ya veras como un genio libera
 
 Chords | Rumba | Dm G C F A7 Bb7 Gm A7 Dm
        | Estrofa | Dm G C F A7 Bb7 Gm A7 Dm
-       | Puente | Dm E7 A7 D
+       | Puente | Dm Gm E7 A7
 
 Rumba | Es un clima
 Estrofa | Me gusta Jujuy cuando llueve y dejar que el recuerdo me lleve
@@ -30,3 +30,4 @@ Estrofa | Me gusta Jujuy cuando aclara y en los charcos mirarme la cara
           Desde el campanario hasta el alba
 Puente  | Es una fruta madura Jujuy
           Es un jardin encendido
+
