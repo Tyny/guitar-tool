@@ -517,22 +517,37 @@ function viewRead() {
   const s = songById(view.id);
   if (!s) return go("list");
 
+  const blocks = blocksOf(s.source);
+  const hasChords = blocks.some(b => b.chords);
+
   const top = el("div", "top");
   const back = el("button", "icon", "‹"); back.setAttribute("aria-label", "Volver");
   back.addEventListener("click", () => go("list"));
   const edit = el("button", "btn", "Editar");
   edit.addEventListener("click", () => go("edit", s.id));
-  top.append(back, el("h1", null, s.title || "Sin título"), edit);
+  top.append(back, el("h1", null, s.title || "Sin título"));
+  if (hasChords) {
+    const toggle = el("button", "toggle", "Acordes");
+    toggle.setAttribute("aria-label", "Ver solo los acordes, sin la letra");
+    toggle.classList.toggle("on", chordsOnly);
+    toggle.addEventListener("click", () => {
+      chordsOnly = !chordsOnly;
+      try { localStorage.setItem("guitar-tool:chordsonly", chordsOnly ? "1" : "0"); } catch (e) { /* ignore */ }
+      render();
+    });
+    top.append(toggle);
+  }
+  top.append(edit);
   app.append(top);
 
   const lyrics = el("div", "lyrics");
-  const blocks = blocksOf(s.source);
   for (const b of blocks) {
+    if (chordsOnly && !b.chords) continue;
     const block = el("div", b.label ? "block" : "block neutral");
     if (b.color) block.style.setProperty("--pc", b.color);
     if (b.label) block.append(el("div", "chip", b.label));
     if (b.chords) block.append(el("div", "chords", b.chords));
-    for (const ln of b.lines) block.append(el("div", "line", ln));
+    if (!chordsOnly) for (const ln of b.lines) block.append(el("div", "line", ln));
     lyrics.append(block);
   }
   if (blocks.length === 0) {
