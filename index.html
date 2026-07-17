@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14120f">
+<title>Guitar Tool</title>
+<style>
+  :root {
+    --bg: #14120f;
+    --card: #1e1b17;
+    --card2: #262119;
+    --ink: #f2ede4;
+    --muted: #a39b8d;
+    --line: #302b23;
+    --accent: #e0954e;
+    --danger: #e07b7b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  #app {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 0 16px calc(96px + env(safe-area-inset-bottom));
+    min-height: 100vh;
+  }
+
+  /* Top bar */
+  .top {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 10px;
+    padding: calc(14px + env(safe-area-inset-top)) 0 12px;
+    background: linear-gradient(var(--bg) 78%, rgba(20,18,15,0));
+  }
+  .top h1 {
+    margin: 0; font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .top .lead { font-size: 1.6rem; }
+
+  /* Buttons */
+  button { font-family: inherit; cursor: pointer; }
+  .icon {
+    flex: 0 0 auto;
+    width: 44px; height: 44px; border-radius: 12px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; line-height: 1;
+    background: var(--card); color: var(--ink); border: 1px solid var(--line);
+  }
+  .icon:active { background: var(--card2); }
+  .btn {
+    flex: 0 0 auto;
+    min-height: 44px; padding: 0 16px; border-radius: 12px;
+    font-size: 1rem; font-weight: 700;
+    background: var(--card); color: var(--ink); border: 1px solid var(--line);
+  }
+  .btn:active { background: var(--card2); }
+  .btn.primary { background: var(--accent); color: #241500; border-color: var(--accent); }
+  .btn.danger  { background: transparent; color: var(--danger); border-color: var(--line); }
+
+  /* Song list */
+  .list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .song {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; text-align: left;
+    min-height: 60px; padding: 14px 16px; border-radius: 16px;
+    background: var(--card); color: var(--ink); border: 1px solid var(--line);
+    font-size: 1.1rem; font-weight: 700;
+  }
+  .song:active { background: var(--card2); }
+  .song .pick { font-size: 1.3rem; opacity: .85; }
+  .song .arrow { margin-left: auto; color: var(--muted); font-size: 1.2rem; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 20px; }
+
+  /* Floating action */
+  .fab {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    z-index: 10;
+    min-height: 52px; padding: 0 24px; border-radius: 26px;
+    font-size: 1.05rem; font-weight: 800;
+    background: var(--accent); color: #241500; border: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  }
+  .fab:active { filter: brightness(.94); }
+
+  /* Lyrics (read view) */
+  .lyrics { margin-top: 6px; font-size: 1.15rem; }
+  .block {
+    border-left: 3px solid var(--pc, var(--line));
+    padding: 2px 0 2px 14px;
+    margin: 0 0 14px;
+  }
+  .chip {
+    display: inline-block; margin: 2px 0 8px;
+    padding: 3px 12px; border-radius: 999px;
+    font-size: .78rem; font-weight: 800; letter-spacing: .02em;
+    text-transform: uppercase;
+    color: var(--pc, var(--muted));
+    background: color-mix(in srgb, var(--pc, var(--muted)) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--pc, var(--muted)) 40%, transparent);
+  }
+  .line { color: var(--pc, var(--ink)); font-weight: 600; }
+  .block.neutral .line { color: var(--ink); }
+  .spacer { height: 16px; }
+
+  /* Editor */
+  .field-label { display: block; margin: 6px 2px 6px; color: var(--muted); font-size: .85rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .title-input, .source {
+    width: 100%; display: block;
+    background: var(--card); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 14px;
+    font-size: 1rem; padding: 14px;
+  }
+  .title-input { font-weight: 800; font-size: 1.15rem; }
+  .source {
+    margin-top: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.6; min-height: 46vh; resize: vertical;
+    white-space: pre; overflow-wrap: normal; overflow-x: auto;
+  }
+  .hint {
+    color: var(--muted); font-size: .88rem; margin: 14px 2px 0;
+  }
+  .hint code {
+    background: var(--card2); padding: 2px 6px; border-radius: 6px;
+    font-family: ui-monospace, Menlo, monospace; color: var(--ink);
+  }
+  .edit-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .edit-actions .btn { flex: 1; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+"use strict";
+
+/* ---------- storage ---------- */
+const KEY = "guitar-tool:songs";
+
+const SEED = [
+  {
+    id: "genio-atrapado",
+    title: "Genio Atrapado",
+    source: [
+      "Intro | (tocá Editar y pegá acá la letra real)",
+      "Frase 1 | una línea por renglón",
+      "Frase 1 | lo de antes del  |  es la sección",
+      "Estribillo | mismo nombre de sección = mismo color",
+      "Estribillo | y se repite cada vez que aparece",
+    ].join("\n"),
+  },
+];
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+  return SEED.map(s => ({ ...s }));
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(songs)); } catch (e) { /* ignore */ }
+}
+
+let songs = load();
+
+/* ---------- section colors ---------- */
+const PALETTE = [
+  "#e0954e", "#e0c86a", "#9ad06a", "#6ad4c8", "#7bb0e0", "#b28ee0",
+  "#e08bc0", "#e07b7b", "#8fd0a0", "#d0b48f", "#8fb0d0", "#c9e06a",
+];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function colorFor(label) {
+  const key = label.trim().toLowerCase();
+  return PALETTE[hashStr(key) % PALETTE.length];
+}
+
+/* ---------- parsing ---------- */
+// Each line: "Label | text" -> {label, text}. No pipe -> continues previous
+// label. Blank line -> {blank:true} and resets the running label.
+function parse(source) {
+  const out = [];
+  let prev = null;
+  for (const raw of (source || "").split("\n")) {
+    if (raw.trim() === "") { out.push({ blank: true }); prev = null; continue; }
+    const i = raw.indexOf("|");
+    let label, text;
+    if (i >= 0) { label = raw.slice(0, i).trim(); text = raw.slice(i + 1).trim(); }
+    else { label = prev; text = raw.trim(); }
+    out.push({ label: label || null, text });
+    prev = label || null;
+  }
+  return out;
+}
+
+/* ---------- dom helpers ---------- */
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+const app = document.getElementById("app");
+function clear() { app.textContent = ""; }
+
+/* ---------- routing / state ---------- */
+let view = { name: "list", id: null };
+function go(name, id) { view = { name, id: id ?? null }; render(); window.scrollTo(0, 0); }
+function songById(id) { return songs.find(s => s.id === id); }
+function newId() {
+  return "s-" + hashStr(String(songs.length) + "|" + (songs.map(s => s.id).join(",")))
+    + "-" + songs.length;
+}
+
+/* ---------- views ---------- */
+function viewList() {
+  const top = el("div", "top");
+  top.append(el("span", "lead", "🎸"), el("h1", null, "Canciones"));
+  app.append(top);
+
+  if (songs.length === 0) {
+    app.append(el("div", "empty", "Todavía no hay canciones.\nTocá “+ Nueva” para empezar."));
+  } else {
+    const list = el("div", "list");
+    for (const s of songs) {
+      const b = el("button", "song");
+      b.append(el("span", "pick", "♪"), el("span", null, s.title || "Sin título"),
+        el("span", "arrow", "›"));
+      b.addEventListener("click", () => go("read", s.id));
+      list.append(b);
+    }
+    app.append(list);
+  }
+
+  const fab = el("button", "fab", "+ Nueva");
+  fab.addEventListener("click", () => {
+    const id = newId();
+    songs.push({ id, title: "Nueva canción", source: "" });
+    save();
+    go("edit", id);
+  });
+  app.append(fab);
+}
+
+function viewRead() {
+  const s = songById(view.id);
+  if (!s) return go("list");
+
+  const top = el("div", "top");
+  const back = el("button", "icon", "‹"); back.setAttribute("aria-label", "Volver");
+  back.addEventListener("click", () => go("list"));
+  const edit = el("button", "btn", "Editar");
+  edit.addEventListener("click", () => go("edit", s.id));
+  top.append(back, el("h1", null, s.title || "Sin título"), edit);
+  app.append(top);
+
+  const lyrics = el("div", "lyrics");
+  const items = parse(s.source);
+  let block = null, curLabel = undefined;
+  for (const it of items) {
+    if (it.blank) { lyrics.append(el("div", "spacer")); block = null; curLabel = undefined; continue; }
+    if (it.label !== curLabel || !block) {
+      curLabel = it.label;
+      block = el("div", it.label ? "block" : "block neutral");
+      if (it.label) {
+        const c = colorFor(it.label);
+        block.style.setProperty("--pc", c);
+        block.append(el("div", "chip", it.label));
+      }
+      lyrics.append(block);
+    }
+    block.append(el("div", "line", it.text));
+  }
+  if (items.length === 0 || items.every(i => i.blank)) {
+    lyrics.append(el("div", "empty", "Canción vacía. Tocá “Editar” para cargar la letra."));
+  }
+  app.append(lyrics);
+}
+
+function viewEdit() {
+  const s = songById(view.id);
+  if (!s) return go("list");
+
+  const top = el("div", "top");
+  const back = el("button", "icon", "‹"); back.setAttribute("aria-label", "Volver");
+  const save2 = el("button", "btn primary", "Guardar");
+  top.append(back, el("h1", null, "Editar"), save2);
+  app.append(top);
+
+  app.append(el("label", "field-label", "Nombre"));
+  const title = el("input", "title-input");
+  title.type = "text"; title.value = s.title || ""; title.placeholder = "Nombre de la canción";
+  app.append(title);
+
+  app.append(el("label", "field-label", "Letra"));
+  const src = el("textarea", "source");
+  src.value = s.source || "";
+  src.setAttribute("spellcheck", "false");
+  src.setAttribute("autocapitalize", "off");
+  src.placeholder = "Estribillo | no me quiero ir\nEstribillo | quiero quedarme";
+  app.append(src);
+
+  const hint = el("p", "hint");
+  hint.append(
+    document.createTextNode("Formato: "), (() => { const c = el("code", null, "Sección | letra"); return c; })(),
+    document.createTextNode(" — una línea por renglón. Mismo nombre de sección = mismo color.")
+  );
+  app.append(hint);
+
+  const commit = () => { s.title = title.value.trim() || "Sin título"; s.source = src.value; save(); };
+
+  const actions = el("div", "edit-actions");
+  const del = el("button", "btn danger", "Borrar");
+  del.addEventListener("click", () => {
+    if (!confirm("¿Borrar “" + (s.title || "esta canción") + "”?")) return;
+    songs = songs.filter(x => x.id !== s.id); save(); go("list");
+  });
+  actions.append(del);
+  app.append(actions);
+
+  back.addEventListener("click", () => { commit(); go("read", s.id); });
+  save2.addEventListener("click", () => { commit(); go("read", s.id); });
+}
+
+/* ---------- render ---------- */
+function render() {
+  clear();
+  if (view.name === "read") viewRead();
+  else if (view.name === "edit") viewEdit();
+  else viewList();
+}
+
+render();
+</script>
+</body>
+</html>
