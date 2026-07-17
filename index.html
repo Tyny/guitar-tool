@@ -192,7 +192,7 @@
 
 /* ---------- storage ---------- */
 const KEY = "guitar-tool:songs";
-const PUBLISHED = "db.json"; // biblioteca compartida publicada en el repo
+const PUBLISHED = "songs.txt"; // biblioteca compartida en el repo (texto plano)
 
 const SEED = [
   {
@@ -222,13 +222,48 @@ async function fetchPublished() {
   try {
     const res = await fetch(PUBLISHED + "?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) return null;
-    const a = await res.json();
-    return Array.isArray(a) ? a : null;
+    const list = parseLibraryText(await res.text());
+    return list.length ? list : null;
   } catch (e) { return null; }
 }
 
 const localSongs = loadLocal();
 let songs = localSongs || SEED.map(s => ({ ...s }));
+
+/* ---------- library text format (songs.txt) ---------- */
+// Texto plano, editable directo en GitHub. Cada canción arranca con "# Título";
+// las líneas siguientes son su letra (formato "Sección | texto").
+function slug(t) {
+  return (t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cancion";
+}
+function parseLibraryText(text) {
+  const out = [];
+  const used = new Set();
+  let cur = null;
+  for (const line of String(text).split(/\r?\n/)) {
+    const m = /^#[ \t]+(.*)$/.exec(line);
+    if (m) {
+      const title = m[1].trim() || "Sin título";
+      let id = slug(title), n = 2;
+      while (used.has(id)) id = slug(title) + "-" + n++;
+      used.add(id);
+      cur = { id, title, source: "" };
+      out.push(cur);
+    } else if (cur) {
+      cur.source += (cur.source ? "\n" : "") + line;
+    } else if (line.trim() !== "") {
+      let id = "sin-titulo"; while (used.has(id)) id += "x"; used.add(id);
+      cur = { id, title: "Sin título", source: line };
+      out.push(cur);
+    }
+  }
+  for (const s of out) s.source = s.source.replace(/\n+$/, "");
+  return out;
+}
+function libraryToText(list) {
+  return list.map(s => "# " + (s.title || "Sin título") + "\n" + (s.source || "")).join("\n\n") + "\n";
+}
 
 /* ---------- section colors ---------- */
 const PALETTE = [
@@ -311,7 +346,7 @@ function safeName(s) {
   return (s || "cancion").replace(/[\/\\:*?"<>|]+/g, "").trim() || "cancion";
 }
 function exportLibrary() {
-  download("db.json", JSON.stringify(songs, null, 2), "application/json");
+  download("songs.txt", libraryToText(songs), "text/plain;charset=utf-8");
 }
 function exportSongTxt(s) {
   download(safeName(s.title) + ".txt", s.source || "", "text/plain;charset=utf-8");
@@ -336,7 +371,13 @@ function importFile() {
           source: String(x.source || ""),
         }));
         save(); go("list");
+      } else if (/^#[ \t]+/m.test(text)) {
+        // songs.txt: biblioteca completa (varias canciones con "# Título")
+        const list = parseLibraryText(text);
+        if (!list.length) { alert("No encontré canciones en el archivo."); return; }
+        songs = list; save(); go("list");
       } else {
+        // .txt suelto: una sola canción, el nombre sale del archivo
         const title = f.name.replace(/\.txt$/i, "").trim() || "Importada";
         const id = newId();
         songs.push({ id, title, source: text });
@@ -368,14 +409,14 @@ function viewList() {
   }
 
   const tools = el("div", "tools");
-  const bExp = el("button", "tool", "⬇ Exportar db.json");
+  const bExp = el("button", "tool", "⬇ Exportar songs.txt");
   bExp.addEventListener("click", exportLibrary);
   const bImp = el("button", "tool", "⬆ Importar");
   bImp.addEventListener("click", importFile);
   tools.append(bExp, bImp);
   app.append(tools);
   app.append(el("p", "hint",
-    "Siempre ves lo último publicado (se sincroniza solo al abrir). “Exportar db.json” genera el archivo para publicar en el repo; “Importar” acepta db.json o una canción en .txt."));
+    "Siempre ves lo último publicado: songs.txt en el repo, editable directo en GitHub como texto. “Exportar songs.txt” genera el archivo; “Importar” acepta songs.txt o .json."));
 
   const fab = el("button", "fab", "+ Nueva");
   fab.addEventListener("click", () => {

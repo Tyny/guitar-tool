@@ -1,0 +1,6 @@
+# Genio Atrapado
+Intro | (tocá Editar y pegá acá la letra real)
+Frase 1 | una línea por renglón
+Frase 1 | lo de antes del  |  es la sección
+Estribillo | mismo nombre de sección = mismo color
+Estribillo | y se repite cada vez que aparece
