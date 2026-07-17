@@ -228,8 +228,7 @@ async function fetchPublished() {
 }
 
 const localSongs = loadLocal();
-const hadLocal = localSongs != null;
-let songs = hadLocal ? localSongs : SEED.map(s => ({ ...s }));
+let songs = localSongs || SEED.map(s => ({ ...s }));
 
 /* ---------- section colors ---------- */
 const PALETTE = [
@@ -331,7 +330,6 @@ function importFile() {
         let data;
         try { data = JSON.parse(text); } catch (e) { alert("JSON inválido."); return; }
         if (!Array.isArray(data)) { alert("El JSON tiene que ser una lista de canciones."); return; }
-        if (!confirm("Reemplazar tu biblioteca por " + data.length + " canción(es) del archivo?")) return;
         songs = data.map(x => ({
           id: x.id || newId(),
           title: String(x.title || "Sin título"),
@@ -349,13 +347,6 @@ function importFile() {
   });
   inp.click();
 }
-async function reloadPublished() {
-  if (!confirm("Traer la biblioteca publicada y reemplazar lo guardado en este dispositivo?")) return;
-  const pub = await fetchPublished();
-  if (!pub) { alert("No pude leer la biblioteca publicada (db.json)."); return; }
-  songs = pub; save(); go("list");
-}
-
 /* ---------- views ---------- */
 function viewList() {
   const top = el("div", "top");
@@ -381,12 +372,10 @@ function viewList() {
   bExp.addEventListener("click", exportLibrary);
   const bImp = el("button", "tool", "⬆ Importar");
   bImp.addEventListener("click", importFile);
-  const bPub = el("button", "tool", "↻ Publicado");
-  bPub.addEventListener("click", reloadPublished);
-  tools.append(bExp, bImp, bPub);
+  tools.append(bExp, bImp);
   app.append(tools);
   app.append(el("p", "hint",
-    "“Exportar db.json” genera el archivo de la biblioteca compartida para publicar en el repo. “Importar” acepta db.json o una canción en .txt."));
+    "Siempre ves lo último publicado (se sincroniza solo al abrir). “Exportar db.json” genera el archivo para publicar en el repo; “Importar” acepta db.json o una canción en .txt."));
 
   const fab = el("button", "fab", "+ Nueva");
   fab.addEventListener("click", () => {
@@ -474,7 +463,6 @@ function viewEdit() {
   const actions = el("div", "edit-actions");
   const del = el("button", "btn danger", "Borrar");
   del.addEventListener("click", () => {
-    if (!confirm("¿Borrar “" + (s.title || "esta canción") + "”?")) return;
     songs = songs.filter(x => x.id !== s.id); save(); go("list");
   });
   const txt = el("button", "btn", "Exportar .txt");
@@ -580,15 +568,17 @@ function render() {
 
 render();
 
-// Primera visita: si no hay copia local, traigo la biblioteca publicada.
-if (!hadLocal) {
-  fetchPublished().then(pub => {
-    if (pub && pub.length) {
-      songs = pub; save();
-      if (view.name === "list") render();
-    }
-  });
-}
+// Siempre sincronizado: en cada carga traigo la biblioteca publicada.
+// Lo publicado manda para sus canciones; se conservan tus borradores locales.
+fetchPublished().then(pub => {
+  if (!pub) return;
+  if (view.name === "edit" || view.name === "play") return; // no interrumpir
+  const pubIds = new Set(pub.map(s => s.id));
+  const drafts = songs.filter(s => !pubIds.has(s.id));
+  songs = pub.concat(drafts);
+  save();
+  render();
+});
 </script>
 </body>
 </html>
