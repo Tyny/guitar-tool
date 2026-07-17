@@ -309,10 +309,14 @@ function colorFor(label) {
 function parse(source) {
   const out = [];
   let prev = null;
+  let inChords = false;
   for (const raw of (source || "").split("\n")) {
-    if (raw.trim() === "") { out.push({ blank: true }); prev = null; continue; }
+    if (raw.trim() === "") { out.push({ blank: true }); prev = null; inChords = false; continue; }
     const i = raw.indexOf("|");
-    if (i >= 0 && raw.slice(0, i).trim().toLowerCase() === "chords") continue; // directiva de acordes
+    const head = i >= 0 ? raw.slice(0, i).trim().toLowerCase() : null;
+    if (head === "chords") { inChords = true; continue; }              // inicio de bloque de acordes
+    if (inChords && raw.trim().startsWith("|")) continue;              // continuación "| Sección | acordes"
+    inChords = false;
     let label, text;
     if (i >= 0) { label = raw.slice(0, i).trim(); text = raw.slice(i + 1).trim(); }
     else { label = prev; text = raw.trim(); }
@@ -325,18 +329,23 @@ function parse(source) {
 // Chord directives:  "Chords | * | Em D C"  -> acordes para todas las secciones
 //                    "Chords | Frase | Am G" -> acordes solo para esa sección
 // La sección específica pisa al comodín "*".
+function parseChordSpec(rest) {
+  const j = rest.indexOf("|");
+  if (j >= 0) return { target: rest.slice(0, j).trim(), chords: rest.slice(j + 1).trim() };
+  return { target: "*", chords: rest.trim() };
+}
 function chordRulesOf(source) {
   const rules = {};
+  let inChords = false;
   for (const raw of String(source).split(/\r?\n/)) {
+    const t = raw.trim();
     const i = raw.indexOf("|");
-    if (i < 0 || raw.slice(0, i).trim().toLowerCase() !== "chords") continue;
-    const rest = raw.slice(i + 1);
-    const j = rest.indexOf("|");
-    let target, chords;
-    if (j >= 0) { target = rest.slice(0, j).trim(); chords = rest.slice(j + 1).trim(); }
-    else { target = "*"; chords = rest.trim(); }
-    const key = target === "*" ? "*" : target.toLowerCase();
-    if (chords) rules[key] = chords;
+    const head = i >= 0 ? raw.slice(0, i).trim().toLowerCase() : null;
+    let spec = null;
+    if (head === "chords") { inChords = true; spec = parseChordSpec(raw.slice(i + 1)); }
+    else if (inChords && t.startsWith("|")) { spec = parseChordSpec(t.slice(1)); }
+    else { inChords = false; continue; }
+    if (spec && spec.chords) rules[spec.target === "*" ? "*" : spec.target.toLowerCase()] = spec.chords;
   }
   return rules;
 }
