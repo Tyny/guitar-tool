@@ -450,6 +450,18 @@ function importFile() {
   });
   inp.click();
 }
+// Borra la copia local + caché y recarga forzando la última versión (código y canciones).
+async function hardRefresh() {
+  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+  try {
+    if (window.caches && caches.keys) {
+      const ks = await caches.keys();
+      await Promise.all(ks.map(k => caches.delete(k)));
+    }
+  } catch (e) { /* ignore */ }
+  const base = location.href.split("#")[0].split("?")[0];
+  location.replace(base + "?v=" + Date.now());
+}
 /* ---------- views ---------- */
 function viewList() {
   const top = el("div", "top");
@@ -475,10 +487,12 @@ function viewList() {
   bExp.addEventListener("click", exportLibrary);
   const bImp = el("button", "tool", "⬆ Importar");
   bImp.addEventListener("click", importFile);
-  tools.append(bExp, bImp);
+  const bRef = el("button", "tool", "↻ Refrescar");
+  bRef.addEventListener("click", hardRefresh);
+  tools.append(bExp, bImp, bRef);
   app.append(tools);
   app.append(el("p", "hint",
-    "Siempre ves lo último publicado: songs.txt en el repo, editable directo en GitHub como texto. “Exportar songs.txt” genera el archivo; “Importar” acepta songs.txt o .json."));
+    "Siempre ves lo último publicado: songs.txt en el repo, editable directo en GitHub como texto. “Refrescar” borra la copia local y trae el último código y canciones. “Exportar songs.txt” genera el archivo; “Importar” acepta songs.txt o .json."));
 
   const fab = el("button", "fab", "+ Nueva");
   fab.addEventListener("click", () => {
