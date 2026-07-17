@@ -79,7 +79,16 @@
   .song:active { background: var(--card2); }
   .song .pick { font-size: 1.3rem; opacity: .85; }
   .song .arrow { margin-left: auto; color: var(--muted); font-size: 1.2rem; }
-  .empty { color: var(--muted); text-align: center; padding: 48px 20px; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 20px; white-space: pre-line; }
+
+  /* Tools (export / import / sync) */
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 2px; }
+  .tool {
+    flex: 1 1 30%; min-height: 46px; padding: 0 10px; border-radius: 12px;
+    font-size: .92rem; font-weight: 700;
+    background: var(--card); color: var(--muted); border: 1px solid var(--line);
+  }
+  .tool:active { background: var(--card2); }
 
   /* Floating action */
   .fab {
@@ -183,6 +192,7 @@
 
 /* ---------- storage ---------- */
 const KEY = "guitar-tool:songs";
+const PUBLISHED = "db.json"; // biblioteca compartida publicada en el repo
 
 const SEED = [
   {
@@ -198,18 +208,28 @@ const SEED = [
   },
 ];
 
-function load() {
+function loadLocal() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) { const a = JSON.parse(raw); if (Array.isArray(a)) return a; }
   } catch (e) { /* ignore */ }
-  return SEED.map(s => ({ ...s }));
+  return null;
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(songs)); } catch (e) { /* ignore */ }
 }
+async function fetchPublished() {
+  try {
+    const res = await fetch(PUBLISHED + "?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) return null;
+    const a = await res.json();
+    return Array.isArray(a) ? a : null;
+  } catch (e) { return null; }
+}
 
-let songs = load();
+const localSongs = loadLocal();
+const hadLocal = localSongs != null;
+let songs = hadLocal ? localSongs : SEED.map(s => ({ ...s }));
 
 /* ---------- section colors ---------- */
 const PALETTE = [
@@ -279,6 +299,63 @@ function newId() {
     + "-" + songs.length;
 }
 
+/* ---------- import / export / sync ---------- */
+function download(name, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function safeName(s) {
+  return (s || "cancion").replace(/[\/\\:*?"<>|]+/g, "").trim() || "cancion";
+}
+function exportLibrary() {
+  download("db.json", JSON.stringify(songs, null, 2), "application/json");
+}
+function exportSongTxt(s) {
+  download(safeName(s.title) + ".txt", s.source || "", "text/plain;charset=utf-8");
+}
+function importFile() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,.txt,application/json,text/plain";
+  inp.addEventListener("change", () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const asJson = /\.json$/i.test(f.name) || text.trim().startsWith("[");
+      if (asJson) {
+        let data;
+        try { data = JSON.parse(text); } catch (e) { alert("JSON inválido."); return; }
+        if (!Array.isArray(data)) { alert("El JSON tiene que ser una lista de canciones."); return; }
+        if (!confirm("Reemplazar tu biblioteca por " + data.length + " canción(es) del archivo?")) return;
+        songs = data.map(x => ({
+          id: x.id || newId(),
+          title: String(x.title || "Sin título"),
+          source: String(x.source || ""),
+        }));
+        save(); go("list");
+      } else {
+        const title = f.name.replace(/\.txt$/i, "").trim() || "Importada";
+        const id = newId();
+        songs.push({ id, title, source: text });
+        save(); go("read", id);
+      }
+    };
+    reader.readAsText(f);
+  });
+  inp.click();
+}
+async function reloadPublished() {
+  if (!confirm("Traer la biblioteca publicada y reemplazar lo guardado en este dispositivo?")) return;
+  const pub = await fetchPublished();
+  if (!pub) { alert("No pude leer la biblioteca publicada (db.json)."); return; }
+  songs = pub; save(); go("list");
+}
+
 /* ---------- views ---------- */
 function viewList() {
   const top = el("div", "top");
@@ -298,6 +375,18 @@ function viewList() {
     }
     app.append(list);
   }
+
+  const tools = el("div", "tools");
+  const bExp = el("button", "tool", "⬇ Exportar db.json");
+  bExp.addEventListener("click", exportLibrary);
+  const bImp = el("button", "tool", "⬆ Importar");
+  bImp.addEventListener("click", importFile);
+  const bPub = el("button", "tool", "↻ Publicado");
+  bPub.addEventListener("click", reloadPublished);
+  tools.append(bExp, bImp, bPub);
+  app.append(tools);
+  app.append(el("p", "hint",
+    "“Exportar db.json” genera el archivo de la biblioteca compartida para publicar en el repo. “Importar” acepta db.json o una canción en .txt."));
 
   const fab = el("button", "fab", "+ Nueva");
   fab.addEventListener("click", () => {
@@ -388,7 +477,9 @@ function viewEdit() {
     if (!confirm("¿Borrar “" + (s.title || "esta canción") + "”?")) return;
     songs = songs.filter(x => x.id !== s.id); save(); go("list");
   });
-  actions.append(del);
+  const txt = el("button", "btn", "Exportar .txt");
+  txt.addEventListener("click", () => { commit(); exportSongTxt(s); });
+  actions.append(del, txt);
   app.append(actions);
 
   back.addEventListener("click", () => { commit(); go("read", s.id); });
@@ -488,6 +579,16 @@ function render() {
 }
 
 render();
+
+// Primera visita: si no hay copia local, traigo la biblioteca publicada.
+if (!hadLocal) {
+  fetchPublished().then(pub => {
+    if (pub && pub.length) {
+      songs = pub; save();
+      if (view.name === "list") render();
+    }
+  });
+}
 </script>
 </body>
 </html>
